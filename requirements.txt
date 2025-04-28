@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy
+databases[postgresql]
+psycopg2-binary
+openai
+requests
+pinecone
+tqdm
+python-dotenv
