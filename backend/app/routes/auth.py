@@ -21,7 +21,7 @@ oauth.register(
     client_kwargs={"scope": "openid email profile"}
 )
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/callback")
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     try:

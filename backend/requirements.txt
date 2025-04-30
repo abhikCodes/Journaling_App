@@ -9,3 +9,4 @@ pydantic
 pyjwt
 python-dotenv
 wikipedia
+asyncpg

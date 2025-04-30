@@ -14,7 +14,7 @@ app.include_router(assistant.router, prefix="/assistant", tags=["assistant"])
 register_tortoise(
     app,
     db_url=settings.DATABASE_URL,
-    modules={"models": ["app.models.user", "app.models.journal_entry"]},
+    modules={"models": ["app.models"]},
     generate_schemas=True,
     add_exception_handlers=True,
 )
