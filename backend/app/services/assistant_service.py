@@ -2,7 +2,7 @@ from openai import OpenAI
 from app.config import settings
 from app.models import User
 from app.services.journal_service import get_monthly_summary, get_important_events, get_friend_personality
-import json, os, glob
+import json
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
@@ -18,12 +18,11 @@ async def init_assistant():
             instructions=ASSISTANT_INSTRUCTIONS,
             model="gpt-4o-mini",
             tools=[
-                {"type": "file_search"},
                 {
                     "type": "function",
                     "function": {
                         "name": "get_monthly_summary",
-                        "description": "Get a summary of the user's journal entries for a specific month.",
+                        "description": "Get a summary of the user's journal entries for the last 30 days.",
                         "parameters": {"type": "object", "properties": {}}
                     }
                 },
@@ -31,7 +30,7 @@ async def init_assistant():
                     "type": "function",
                     "function": {
                         "name": "get_important_events",
-                        "description": "Identify significant events from the user's journal entries.",
+                        "description": "Identify significant events from the user's journal entries for the last 30 days.",
                         "parameters": {"type": "object", "properties": {}}
                     }
                 },
@@ -39,7 +38,7 @@ async def init_assistant():
                     "type": "function",
                     "function": {
                         "name": "get_friend_personality",
-                        "description": "Summarize a friend's personality from the user's journal entries.",
+                        "description": "Summarize a friend's personality from the user's journal entries for the last 30 days.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -87,13 +86,17 @@ async def handle_assistant_message(user: User, message: str):
                     personality = await get_friend_personality(user, args["f_name"])
                     tool_outputs.append({"tool_call_id": tool_call.id, "output": json.dumps(personality)})
 
-
             if tool_outputs:
                 client.beta.threads.runs.submit_tool_outputs(
                     run_id=run.id, thread_id=thread_id, tool_outputs=tool_outputs
                 )
 
-    messages = client.beta.threads.messages.list(thread_id=thread_id)
+    messages = client.beta.threads.messages.list(thread_id=thread_id).data
+    assistant_msgs = [obj for obj in messages if obj.role == 'assistant']
+    assistant_msgs.sort(key=lambda m: m.created_at, reverse=True)
+    
     # Point 5: return the last assistant message content directly
-    last = messages.data[-1]
-    return last.content
+    latest = assistant_msgs[0]
+    reply = "".join(block.text.value for block in latest.content if hasattr(block, "text") and hasattr(block.text, "value"))
+
+    return reply

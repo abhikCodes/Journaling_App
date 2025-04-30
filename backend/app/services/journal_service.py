@@ -44,12 +44,17 @@ async def get_friend_personality(user, f_name):
     entries = await JournalEntry.filter(user=user).order_by("-date").limit(30)
     if not entries:
         return []
+    
     contents = [entry.content for entry in entries]
+
+    if not any(f_name.lower() in text.lower() for text in contents):
+        return ["Friend not present"]
+    
     prompt = "\n".join(contents)
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": f"Summarize the personality of the following person: {f_name}, based on the journal entries provided. If the person's name is not there in the entries, return 'Friend not present'"},
+            {"role": "system", "content": f"Summarize the personality of the following person: {f_name}, based on the journal entries provided....Tell me their overall sentiment as well."},
             {"role": "user", "content": prompt}
         ],
         max_tokens=200
