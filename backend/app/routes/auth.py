@@ -2,13 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from authlib.integrations.starlette_client import OAuth
 from starlette.config import Config
-from starlette.responses import RedirectResponse
 from app.config import settings
 from app.models import User
 import jwt
 from datetime import datetime, timedelta
 
 router = APIRouter()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/callback")
 
 config = Config(environ={
     "GOOGLE_CLIENT_ID": settings.GOOGLE_CLIENT_ID,
@@ -20,8 +21,6 @@ oauth.register(
     server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
     client_kwargs={"scope": "openid email profile"}
 )
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/callback")
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
@@ -43,7 +42,7 @@ async def login(request: Request):
 async def auth_callback(request: Request):
     token = await oauth.google.authorize_access_token(request)
     user_info = token["userinfo"]
-    user, created = await User.get_or_create(
+    user, _ = await User.get_or_create(
         google_id=user_info["sub"],
         defaults={"email": user_info["email"], "name": user_info["name"]}
     )

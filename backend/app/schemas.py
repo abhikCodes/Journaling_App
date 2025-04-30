@@ -18,5 +18,8 @@ class JournalEntryResponse(BaseModel):
     content: str
     tags: List[str]
 
+class AssistantRequest(BaseModel):
+    message: str
+
 class AssistantMessage(BaseModel):
     message: str

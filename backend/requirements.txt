@@ -1,5 +1,5 @@
 pandas
-fastapi
+fastapi[all]
 uvicorn
 tortoise-orm
 psycopg2-binary
@@ -10,3 +10,4 @@ pyjwt
 python-dotenv
 wikipedia
 asyncpg
+itsdangerous
