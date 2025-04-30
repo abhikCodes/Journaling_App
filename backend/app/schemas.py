@@ -1,24 +1,22 @@
 from pydantic import BaseModel
-from datetime import datetime
-
-class UserCreate(BaseModel):
-    username: str
-    password: str
-
-class UserResponse(BaseModel):
-    id: int
-    username: str
+from typing import List, Optional
+from datetime import date
 
 class JournalEntryCreate(BaseModel):
-    text: str
-    tags: str | None = None
+    date: date
+    content: str
+    tags: Optional[List[str]] = []
+
+class JournalEntryUpdate(BaseModel):
+    date: Optional[date]
+    content: Optional[str]
+    tags: Optional[List[str]]
 
 class JournalEntryResponse(BaseModel):
     id: int
-    date: datetime
-    text: str
-    image_url: str | None
-    tags: str | None
+    date: date
+    content: str
+    tags: List[str]
 
-class AIQuery(BaseModel):
-    query: str
+class AssistantMessage(BaseModel):
+    message: str

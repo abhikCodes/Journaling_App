@@ -1,22 +1,21 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
-from sqlalchemy.orm import relationship
-from .database import Base
-from datetime import datetime
+from tortoise import fields, models
 
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    google_id = Column(String, unique=True, index=True)  # Google user ID
-    email = Column(String, unique=True, index=True)
-    name = Column(String)
-    entries = relationship("JournalEntry", back_populates="user")
+class User(models.Model):
+    id = fields.IntField(pk=True)
+    google_id = fields.CharField(max_length=255, unique=True)
+    email = fields.CharField(max_length=255, unique=True)
+    name = fields.CharField(max_length=255)
+    thread_id = fields.CharField(max_length=255, null=True)
 
-class JournalEntry(Base):
-    __tablename__ = "journal_entries"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    date = Column(DateTime, default=datetime.utcnow)
-    text = Column(String)
-    image_url = Column(String, nullable=True)
-    tags = Column(String, nullable=True)
-    user = relationship("User", back_populates="entries")
+    class Meta:
+        table = "users"
+
+class JournalEntry(models.Model):
+    id = fields.IntField(pk=True)
+    user = fields.ForeignKeyField("models.User", related_name="entries")
+    date = fields.DateField()
+    content = fields.TextField()
+    tags = fields.JSONField(default=list)
+
+    class Meta:
+        table = "journal_entries"
