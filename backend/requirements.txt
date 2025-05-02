@@ -11,3 +11,6 @@ python-dotenv
 wikipedia
 asyncpg
 itsdangerous
+redis
+qdrant-client
+sentence-transformers

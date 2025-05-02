@@ -14,5 +14,10 @@ class Settings:
     # URL of the frontend application for OAuth callback
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3001")
     PRODUCTION_ENV = os.getenv("PRODUCTION_ENV", "false").lower() == "true"
+    # Redis configuration
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    # Token blacklist TTL (in seconds) - 30 days
+    TOKEN_BLACKLIST_TTL = 60 * 60 * 24 * 30
 
 settings = Settings()

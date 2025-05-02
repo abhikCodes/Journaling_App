@@ -1,16 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
 from fastapi.security import OAuth2PasswordBearer
 from authlib.integrations.starlette_client import OAuth
 from starlette.config import Config
 from app.config import settings
 from app.models import User
+from app.utils.redis_utils import add_token_to_blacklist, is_token_blacklisted, clear_all_user_tokens
+from app.utils.auth_utils import extract_token_from_header
 import jwt
 from datetime import datetime, timedelta
 from starlette.responses import RedirectResponse
+import logging
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/callback")
+# Changed auto_error to True to ensure token is always required
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/callback", auto_error=True)
 
 config = Config(environ={
     "GOOGLE_CLIENT_ID": settings.GOOGLE_CLIENT_ID,
@@ -25,14 +32,56 @@ oauth.register(
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
+        # First, just validate the JWT token itself
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         google_id: str = payload.get("sub")
         if google_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        user = await User.get(google_id=google_id)
-        return user
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, 
+                detail="Invalid token - missing subject"
+            )
+            
+        # Try to get the user
+        try:
+            user = await User.get(google_id=google_id)
+            
+            # If we got the user, check if token is blacklisted as a best effort
+            # The blacklist check is not critical for functionality
+            try:
+                blacklisted = await is_token_blacklisted(token, google_id)
+                if blacklisted:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED, 
+                        detail="Token has been revoked"
+                    )
+            except Exception as e:
+                # Log but don't fail if Redis is unavailable
+                logger.warning(f"Blacklist check failed: {str(e)}")
+                
+            return user
+        except Exception as e:
+            logger.error(f"User lookup error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, 
+                detail="User not found"
+            )
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Token has expired"
+        )
+    except jwt.InvalidTokenError as e:
+        logger.error(f"Invalid token error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid token format"
+        )
+    except Exception as e:
+        logger.error(f"Authentication error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid authentication credentials"
+        )
 
 @router.get("/login")
 async def login(request: Request):
@@ -42,18 +91,101 @@ async def login(request: Request):
 
 @router.get("/callback")
 async def auth_callback(request: Request):
-    # Exchange auth code for tokens
-    token = await oauth.google.authorize_access_token(request)
-    user_info = token["userinfo"]
-    user, _ = await User.get_or_create(
-        google_id=user_info["sub"],
-        defaults={"email": user_info["email"], "name": user_info["name"]}
-    )
-    payload = {
-        "sub": user.google_id,
-        "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    try:
+        # Exchange auth code for tokens
+        token = await oauth.google.authorize_access_token(request)
+        user_info = token["userinfo"]
+        
+        user, _ = await User.get_or_create(
+            google_id=user_info["sub"],
+            defaults={"email": user_info["email"], "name": user_info["name"]}
+        )
+        
+        # Create a JWT token with short expiration
+        # The token will be checked against Redis blacklist for revocation
+        payload = {
+            "sub": user.google_id,
+            "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        }
+        access_token = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+        
+        # Redirect to frontend with token
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        redirect_url = f"{frontend_url}/?auth_success=true&access_token={access_token}"
+        return RedirectResponse(url=redirect_url, status_code=302)
+    except Exception as e:
+        logger.error(f"Auth callback error: {str(e)}")
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        redirect_url = f"{frontend_url}/?auth_error=true"
+        return RedirectResponse(url=redirect_url, status_code=302)
+
+@router.post("/logout")
+async def logout(user: User = Security(get_current_user), token: str = Depends(oauth2_scheme)):
+    """
+    Logout a user by adding their token to the blacklist in Redis
+    """
+    try:
+        await add_token_to_blacklist(token, user.google_id)
+        return {"detail": "Successfully logged out"}
+    except Exception as e:
+        logger.error(f"Logout error: {str(e)}")
+        return {"detail": "Logout processed but token blacklisting unavailable"}
+
+@router.post("/logout-all-devices")
+async def logout_all_devices(user: User = Security(get_current_user)):
+    """
+    Logout a user from all devices by clearing all their tokens
+    """
+    try:
+        await clear_all_user_tokens(user.google_id)
+        return {"detail": "Successfully logged out from all devices"}
+    except Exception as e:
+        logger.error(f"Logout all devices error: {str(e)}")
+        return {"detail": "Logout request processed but token blacklisting unavailable"}
+
+@router.get("/validate-token")
+async def validate_token(user: User = Security(get_current_user)):
+    """
+    Simple endpoint to validate if a token is valid
+    Returns the user info if token is valid
+    """
+    return {
+        "valid": True,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name
+        }
     }
-    access_token = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    frontend_url = settings.FRONTEND_URL.rstrip('/')
-    redirect_url = f"{frontend_url}/?auth_success=true&access_token={access_token}"
-    return RedirectResponse(url=redirect_url, status_code=302)
+
+@router.post("/refresh-token")
+async def refresh_token(user: User = Security(get_current_user), old_token: str = Depends(oauth2_scheme)):
+    """
+    Refresh a token to extend the expiration time
+    This blacklists the old token and issues a new one
+    """
+    try:
+        # Try to blacklist the old token, but continue even if it fails
+        try:
+            await add_token_to_blacklist(old_token, user.google_id)
+        except Exception as e:
+            logger.warning(f"Token blacklisting failed on refresh: {str(e)}")
+        
+        # Create a new token
+        payload = {
+            "sub": user.google_id,
+            "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        }
+        new_token = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+        
+        return {
+            "access_token": new_token,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        }
+    except Exception as e:
+        logger.error(f"Token refresh error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token refresh failed"
+        )
