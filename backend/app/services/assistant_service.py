@@ -95,7 +95,11 @@ async def handle_assistant_message(user: User, message: str):
     assistant_msgs = [obj for obj in messages if obj.role == 'assistant']
     assistant_msgs.sort(key=lambda m: m.created_at, reverse=True)
     
-    # Point 5: return the last assistant message content directly
+    # Check if there are any assistant messages
+    if not assistant_msgs:
+        return "I'm sorry, I couldn't process your request. Please try again."
+    
+    # Get the latest assistant message
     latest = assistant_msgs[0]
     reply = "".join(block.text.value for block in latest.content if hasattr(block, "text") and hasattr(block.text, "value"))
 

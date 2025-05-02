@@ -6,6 +6,7 @@ from app.config import settings
 from app.models import User
 import jwt
 from datetime import datetime, timedelta
+from starlette.responses import RedirectResponse
 
 router = APIRouter()
 
@@ -35,11 +36,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
 @router.get("/login")
 async def login(request: Request):
-    redirect_uri = request.url_for("auth_callback")
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    # Standard OAuth redirect to backend callback
+    callback_url = request.url_for("auth_callback")
+    return await oauth.google.authorize_redirect(request, callback_url)
 
 @router.get("/callback")
 async def auth_callback(request: Request):
+    # Exchange auth code for tokens
     token = await oauth.google.authorize_access_token(request)
     user_info = token["userinfo"]
     user, _ = await User.get_or_create(
@@ -51,4 +54,6 @@ async def auth_callback(request: Request):
         "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     }
     access_token = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    return {"access_token": access_token, "token_type": "bearer"}
+    frontend_url = settings.FRONTEND_URL.rstrip('/')
+    redirect_url = f"{frontend_url}/?auth_success=true&access_token={access_token}"
+    return RedirectResponse(url=redirect_url, status_code=302)

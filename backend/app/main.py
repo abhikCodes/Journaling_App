@@ -7,8 +7,18 @@ from tortoise.contrib.fastapi import register_tortoise
 from app.routes import auth, journal, assistant
 from app.config import settings
 from app.services.assistant_service import init_assistant
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="JournalMind")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3001"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # SessionMiddleware for OAuth
 app.add_middleware(

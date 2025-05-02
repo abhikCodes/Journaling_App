@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authenticating...</title>
+  <style>
+    body {
+      font-family: 'Nunito', sans-serif;
+      background-color: #FFF9E5;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      text-align: center;
+      max-width: 400px;
+      padding: 2rem;
+      background-color: white;
+      border-radius: 1rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 1rem;
+      border: 4px solid rgba(88, 204, 2, 0.3);
+      border-radius: 50%;
+      border-top-color: #58CC02;
+      animation: spin 1s ease-in-out infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner"></div>
+    <h2>Authenticating...</h2>
+    <p>Please wait while we complete your login.</p>
+  </div>
+
+  <script>
+    // Function to extract the token from the response
+    function extractToken() {
+      try {
+        // Check URL params first (most common case)
+        const params = new URLSearchParams(window.location.search);
+        const accessToken = params.get('access_token');
+        if (accessToken) {
+          console.log('Token found in URL parameters');
+          return accessToken;
+        }
+        
+        // Try to parse the body content
+        const bodyText = document.body.innerText;
+        if (bodyText && bodyText.includes('access_token')) {
+          try {
+            const jsonData = JSON.parse(bodyText);
+            if (jsonData.access_token) {
+              console.log('Token found in JSON body');
+              return jsonData.access_token;
+            }
+          } catch (e) {
+            console.error('Failed to parse JSON from body', e);
+            
+            // Try to extract with regex as fallback
+            const tokenMatch = bodyText.match(/"access_token":"([^"]+)"/);
+            if (tokenMatch && tokenMatch[1]) {
+              console.log('Token found using regex');
+              return tokenMatch[1];
+            }
+          }
+        }
+        
+        console.log('No token found in any source');
+        return null;
+      } catch (err) {
+        console.error('Error processing auth response', err);
+        return null;
+      }
+    }
+
+    // Immediately attempt to extract and save the token
+    window.onload = function() {
+      console.log('Auth callback page loaded');
+      
+      setTimeout(() => {
+        console.log('Processing authentication...');
+        const token = extractToken();
+        
+        if (token) {
+          // Store token in localStorage
+          console.log('Storing access token in localStorage');
+          localStorage.setItem('access_token', token);
+          
+          // Debug message to console
+          console.log('Token set successfully, redirecting to app...');
+          
+          // Directly redirect to main app root
+          window.location.href = '/?auth_success=true';
+        } else {
+          // Debug error
+          console.error('No token found in response');
+          
+          // If we can't extract a token, go to login page
+          window.location.href = '/?auth_failed=true';
+        }
+      }, 500); // Shorter delay for faster experience
+    };
+  </script>
+</body>
+</html> 
