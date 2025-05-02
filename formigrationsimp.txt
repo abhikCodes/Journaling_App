@@ -1,0 +1,4 @@
+1. docker volume rm backend_pgdata
+backend_pgdata
+
+2. docker-compose up -d

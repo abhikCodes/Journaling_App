@@ -19,7 +19,20 @@ export const journalApi = {
   getEntry: (id) => api.get(`/journal/entries/${id}`),
   createEntry: (data) => api.post('/journal/entries', data),
   updateEntry: (id, data) => api.put(`/journal/entries/${id}`, data),
-  deleteEntry: (id) => api.delete(`/journal/entries/${id}`)
+  deleteEntry: (id) => api.delete(`/journal/entries/${id}`),
+  searchEntries: (query, limit = 5) => api.get('/journal/search', { params: { query, limit } })
+}
+
+export const analyticsApi = {
+  getSentimentHistory: (days = 30) => api.get('/analytics/sentiment/history', { params: { days } }),
+  getSummaries: (limit = 5) => api.get('/analytics/summaries', { params: { limit } }),
+  getSummary: (id) => api.get(`/analytics/summaries/${id}`),
+  getLatestSummary: () => api.get('/analytics/summaries/latest')
+}
+
+export const insightsApi = {
+  getPeopleSummary: () => api.get('/insights/people-summary'),
+  chatWithJournal: (query) => api.post('/insights/chat', { query })
 }
 
 export const authApi = {
