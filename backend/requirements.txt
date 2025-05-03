@@ -14,3 +14,4 @@ itsdangerous
 redis
 qdrant-client
 sentence-transformers
+httpx

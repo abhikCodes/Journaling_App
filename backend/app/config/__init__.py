@@ -1,3 +1,7 @@
+"""
+Configuration package for the application
+"""
+
 import os
 from dotenv import load_dotenv
 
@@ -20,4 +24,4 @@ class Settings:
     # Token blacklist TTL (in seconds) - 30 days
     TOKEN_BLACKLIST_TTL = 60 * 60 * 24 * 30
 
-settings = Settings()
+settings = Settings() 

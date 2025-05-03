@@ -1,106 +1,111 @@
-from openai import OpenAI
 from app.config import settings
 from app.models import User
 from app.services.journal_service import get_monthly_summary, get_important_events, get_friend_personality
+from app.utils.ai import ai_manager
 import json
 
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+# Define the assistant instructions
+ASSISTANT_INSTRUCTIONS = """You are a psychology expert assistant designed to help users with their journaling and personal insights. You have access to a library of psychology texts via file search and can retrieve information to support your advice. You can also access summaries and insights from the user's journal entries through function calls. Be empathetic, supportive, and provide informed responses. Include a disclaimer when appropriate: 'I am not a substitute for professional help; please consult a licensed therapist for serious concerns.'"""
 
-# Delay assistant creation until startup
-assistant = None
+# Store the assistant ID after creation
+assistant_id = None
 
 async def init_assistant():
-    global assistant
-    if assistant is None:
-        ASSISTANT_INSTRUCTIONS = """You are a psychology expert assistant designed to help users with their journaling and personal insights. You have access to a library of psychology texts via file search and can retrieve information to support your advice. You can also access summaries and insights from the user's journal entries through function calls. Be empathetic, supportive, and provide informed responses. Include a disclaimer when appropriate: 'I am not a substitute for professional help; please consult a licensed therapist for serious concerns.'"""
-        assistant = client.beta.assistants.create(
-            name="PsychologyExpert",
-            instructions=ASSISTANT_INSTRUCTIONS,
-            model="gpt-4o-mini",
-            tools=[
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_monthly_summary",
-                        "description": "Get a summary of the user's journal entries for the last 30 days.",
-                        "parameters": {"type": "object", "properties": {}}
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_important_events",
-                        "description": "Identify significant events from the user's journal entries for the last 30 days.",
-                        "parameters": {"type": "object", "properties": {}}
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_friend_personality",
-                        "description": "Summarize a friend's personality from the user's journal entries for the last 30 days.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "f_name": {
-                                    "type": "string",
-                                    "description": "The first name of the friend to analyze."
-                                }
-                            },
-                            "required": ["f_name"]
+    """Initialize the assistant on startup"""
+    global assistant_id
+    
+    # Define the tools for the assistant
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_monthly_summary",
+                "description": "Get a summary of the user's journal entries for the last 30 days.",
+                "parameters": {"type": "object", "properties": {}}
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_important_events",
+                "description": "Identify significant events from the user's journal entries for the last 30 days.",
+                "parameters": {"type": "object", "properties": {}}
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_friend_personality",
+                "description": "Summarize a friend's personality from the user's journal entries for the last 30 days.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "f_name": {
+                            "type": "string",
+                            "description": "The first name of the friend to analyze."
                         }
-                    }
+                    },
+                    "required": ["f_name"]
                 }
-            ]
-        )
+            }
+        }
+    ]
+    
+    # Create the assistant using the AI Manager
+    assistant = await ai_manager.create_assistant(
+        name="PsychologyExpert",
+        instructions=ASSISTANT_INSTRUCTIONS,
+        tools=tools
+    )
+    
+    # Store the assistant ID
+    assistant_id = assistant["id"]
+    ai_manager.set_active_assistant_id(assistant_id)
 
 
 async def handle_assistant_message(user: User, message: str):
+    """Handle user messages to the assistant"""
     if not user.thread_id:
-        thread = client.beta.threads.create()
-        user.thread_id = thread.id
+        # No existing thread for this user, create a new one
+        thread = await ai_manager.get_response(
+            user_message=message,
+            assistant_id=assistant_id,
+            tool_callbacks={
+                "get_monthly_summary": lambda: get_monthly_summary(user),
+                "get_important_events": lambda: get_important_events(user),
+                "get_friend_personality": lambda f_name: get_friend_personality(user, f_name)
+            }
+        )
+        
+        # Save the thread ID to the user
+        user.thread_id = thread["thread_id"]
         await user.save()
-    thread_id = user.thread_id
-
-    client.beta.threads.messages.create(thread_id=thread_id, role="user", content=message)
-    run = client.beta.threads.runs.create(thread_id=thread_id, assistant_id=assistant.id)
-
-    while run.status in ["in_progress", "queued", "requires_action"]:
-        run = client.beta.threads.runs.retrieve(run_id=run.id, thread_id=thread_id)
-
-        if run.status == "requires_action":
-            tool_outputs = []
-
-            for tool_call in run.required_action.submit_tool_outputs.tool_calls:
-
-                if tool_call.function.name == "get_monthly_summary":
-                    summary = await get_monthly_summary(user)
-                    tool_outputs.append({"tool_call_id": tool_call.id, "output": json.dumps(summary)})
-
-                elif tool_call.function.name == "get_important_events":
-                    events = await get_important_events(user)
-                    tool_outputs.append({"tool_call_id": tool_call.id, "output": json.dumps(events)})
-
-                elif tool_call.function.name == "get_friend_personality":
-                    args = json.loads(tool_call.function.arguments)
-                    personality = await get_friend_personality(user, args["f_name"])
-                    tool_outputs.append({"tool_call_id": tool_call.id, "output": json.dumps(personality)})
-
-            if tool_outputs:
-                client.beta.threads.runs.submit_tool_outputs(
-                    run_id=run.id, thread_id=thread_id, tool_outputs=tool_outputs
-                )
-
-    messages = client.beta.threads.messages.list(thread_id=thread_id).data
-    assistant_msgs = [obj for obj in messages if obj.role == 'assistant']
-    assistant_msgs.sort(key=lambda m: m.created_at, reverse=True)
-    
-    # Check if there are any assistant messages
-    if not assistant_msgs:
-        return "I'm sorry, I couldn't process your request. Please try again."
-    
-    # Get the latest assistant message
-    latest = assistant_msgs[0]
-    reply = "".join(block.text.value for block in latest.content if hasattr(block, "text") and hasattr(block.text, "value"))
-
-    return reply
+        
+        return thread["response"]
+    else:
+        # Use existing thread for this user
+        thread_id = user.thread_id
+        
+        # Define tool callbacks with proper async handling
+        async def monthly_summary_callback():
+            return await get_monthly_summary(user)
+            
+        async def important_events_callback():
+            return await get_important_events(user)
+            
+        async def friend_personality_callback(f_name):
+            return await get_friend_personality(user, f_name)
+        
+        # Get response using the AI Manager
+        result = await ai_manager.get_response(
+            user_message=message,
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+            tool_callbacks={
+                "get_monthly_summary": monthly_summary_callback,
+                "get_important_events": important_events_callback,
+                "get_friend_personality": friend_personality_callback
+            }
+        )
+        
+        return result["response"]
