@@ -1,18 +1,23 @@
 # main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.openapi.utils import get_openapi
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from tortoise.contrib.fastapi import register_tortoise
 from app.routes import auth, journal, assistant, insights, analytics
 from app.config import settings
+# Import but not used at startup - assistant is initialized on-demand when needed
 from app.services.assistant_service import init_assistant
 from app.utils.vector_db_utils import init_vector_db
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.redis_utils import get_redis_client
 from app.migrations import run_migrations
+from fastapi.staticfiles import StaticFiles
+import os
 import logging
 import time
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 # Configure logging
 logging.basicConfig(
@@ -42,30 +47,34 @@ app.add_middleware(
 # Define APIKeyHeader for Swagger
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
+# Create a custom OpenAPI schema function
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
-    # Generate a fresh schema
+    
     openapi_schema = get_openapi(
-        title=app.title,
-        version=app.version,
-        description=app.description,
+        title="JournalMind API",
+        version="1.0.0",
+        description="API for JournalMind - Your personal journaling assistant with AI-powered insights.",
         routes=app.routes,
     )
-    # Add our BearerAuth scheme
-    openapi_schema["components"]["securitySchemes"] = {
-        "BearerAuth": {
-            "type": "apiKey",
-            "in": "header",
-            "name": "Authorization",
-            "description": "JWT Authorization header using the Bearer scheme. Example: \"Bearer {token}\""
+    
+    # Add security scheme
+    openapi_schema["components"] = {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            }
         }
     }
-    # Apply globally
+    
+    # Apply security to all endpoints
     for path in openapi_schema["paths"].values():
-        for op in path.values():
-            op.setdefault("security", []).append({"BearerAuth": []})
-
+        for operation in path.values():
+            operation["security"] = [{"bearerAuth": []}]
+    
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
@@ -79,6 +88,14 @@ app.include_router(assistant.router, prefix="/assistant", tags=["assistant"])
 app.include_router(insights.router, prefix="/insights", tags=["insights"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 
+# Ensure uploads directory exists
+UPLOADS_DIR = "uploads"
+if not os.path.exists(UPLOADS_DIR):
+    os.makedirs(UPLOADS_DIR)
+
+# Mount static files directory for serving uploaded images
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+
 # Configure Tortoise ORM
 register_tortoise(
     app,
@@ -87,6 +104,12 @@ register_tortoise(
     generate_schemas=True,
     add_exception_handlers=True,
 )
+
+# Import and initialize our AI logger
+from app.utils.ai.logger import ai_logger
+
+# Create logs directory if it doesn't exist
+os.makedirs("logs", exist_ok=True)
 
 async def initialize_redis_with_retry(max_retries=5, retry_delay=2):
     """
@@ -131,9 +154,9 @@ async def startup_event():
     if not vectordb_available:
         logger.warning("System will operate without vector database capabilities")
     
-    await init_assistant()
+    # Don't initialize assistant on startup - it will be created on-demand
+    # await init_assistant()
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    # Close Redis connection if needed
     logger.info("JournalMind API is shutting down...")

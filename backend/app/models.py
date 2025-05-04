@@ -15,11 +15,13 @@ class User(models.Model):
 class JournalEntry(models.Model):
     id = fields.IntField(pk=True)
     user = fields.ForeignKeyField("models.User", related_name="entries")
+    title = fields.CharField(max_length=100, null=True)  # Optional title field
     date = fields.DateField()
     content = fields.TextField()
     tags = fields.JSONField(default=list)
     sentiment_score = fields.FloatField(null=True)  # Score from -1.0 to 1.0
     emotion_tags = fields.JSONField(default=list)  # List of detected emotions
+    image_url = fields.CharField(max_length=500, null=True)  # URL to the stored image
     
     class Meta:
         table = "journal_entries"

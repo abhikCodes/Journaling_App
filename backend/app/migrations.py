@@ -69,6 +69,36 @@ async def run_migrations():
                 )
                 logger.info("Migration for emotion_tags completed successfully")
                 
+            # Check if the title column exists in journal_entries
+            query = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name='journal_entries' AND column_name='title'
+            """
+            result = await conn.execute_query(query)
+            
+            if not result[1]:  # Column doesn't exist
+                logger.info("Adding 'title' column to journal_entries table...")
+                await conn.execute_query(
+                    "ALTER TABLE journal_entries ADD COLUMN title VARCHAR(100) NULL"
+                )
+                logger.info("Migration for title completed successfully")
+                
+            # Check if the image_url column exists in journal_entries
+            query = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name='journal_entries' AND column_name='image_url'
+            """
+            result = await conn.execute_query(query)
+            
+            if not result[1]:  # Column doesn't exist
+                logger.info("Adding 'image_url' column to journal_entries table...")
+                await conn.execute_query(
+                    "ALTER TABLE journal_entries ADD COLUMN image_url VARCHAR(500) NULL"
+                )
+                logger.info("Migration for image_url completed successfully")
+                
         except Exception as e:
             # This could happen if the tables don't exist yet
             # but that's okay because Tortoise.generate_schemas() will create it
@@ -81,4 +111,4 @@ async def run_migrations():
         return False
 
 if __name__ == "__main__":
-    asyncio.run(run_migrations()) 
+    asyncio.run(run_migrations())

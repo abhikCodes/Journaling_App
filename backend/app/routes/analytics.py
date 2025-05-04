@@ -62,7 +62,7 @@ async def get_sentiment_history(
         logger.error(f"Failed to get sentiment history: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get sentiment history")
 
-@router.get("/summaries", response_model=List[PeriodicSummaryResponse])
+@router.get("/summaries", response_model=List[Dict[str, Any]])
 async def get_periodic_summaries(
     limit: int = 5,
     user: User = Depends(get_current_user)
@@ -76,49 +76,20 @@ async def get_periodic_summaries(
         ).order_by("-date_created").limit(limit)
         
         return [
-            PeriodicSummaryResponse(
-                id=summary.id,
-                date_created=summary.date_created,
-                start_date=summary.start_date,
-                end_date=summary.end_date,
-                content=summary.content,
-                entry_count=summary.entry_count
-            )
+            {
+                "id": summary.id,
+                "date_created": summary.date_created.isoformat(),
+                "start_date": summary.start_date.isoformat(),
+                "end_date": summary.end_date.isoformat(),
+                "content": summary.content,
+                "entry_count": summary.entry_count
+            }
             for summary in summaries
         ]
     
     except Exception as e:
         logger.error(f"Failed to get periodic summaries: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get periodic summaries")
-
-@router.get("/summaries/{summary_id}", response_model=PeriodicSummaryResponse)
-async def get_periodic_summary(
-    summary_id: int,
-    user: User = Depends(get_current_user)
-):
-    """
-    Get a specific periodic summary by ID
-    """
-    try:
-        summary = await PeriodicSummary.get_or_none(id=summary_id, user=user)
-        
-        if not summary:
-            raise HTTPException(status_code=404, detail="Summary not found")
-        
-        return PeriodicSummaryResponse(
-            id=summary.id,
-            date_created=summary.date_created,
-            start_date=summary.start_date,
-            end_date=summary.end_date,
-            content=summary.content,
-            entry_count=summary.entry_count
-        )
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get periodic summary: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to get periodic summary")
 
 @router.get("/summaries/latest")
 async def get_latest_summary(
@@ -133,20 +104,49 @@ async def get_latest_summary(
         ).order_by("-date_created").first()
         
         if not summary:
-            return {"has_summary": False}
+            return {"has_summary": False, "summary": None}
         
         return {
             "has_summary": True,
-            "summary": PeriodicSummaryResponse(
-                id=summary.id,
-                date_created=summary.date_created,
-                start_date=summary.start_date,
-                end_date=summary.end_date,
-                content=summary.content,
-                entry_count=summary.entry_count
-            )
+            "summary": {
+                "id": summary.id,
+                "date_created": summary.date_created.isoformat(),
+                "start_date": summary.start_date.isoformat(),
+                "end_date": summary.end_date.isoformat(),
+                "content": summary.content,
+                "entry_count": summary.entry_count
+            }
         }
     
     except Exception as e:
         logger.error(f"Failed to get latest summary: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to get latest summary") 
+        raise HTTPException(status_code=500, detail="Failed to get latest summary")
+
+@router.get("/summaries/{summary_id}", response_model=Dict[str, Any])
+async def get_periodic_summary(
+    summary_id: int,
+    user: User = Depends(get_current_user)
+):
+    """
+    Get a specific periodic summary by ID
+    """
+    try:
+        summary = await PeriodicSummary.get_or_none(id=summary_id, user=user)
+        
+        if not summary:
+            raise HTTPException(status_code=404, detail="Summary not found")
+        
+        return {
+            "id": summary.id,
+            "date_created": summary.date_created.isoformat(),
+            "start_date": summary.start_date.isoformat(),
+            "end_date": summary.end_date.isoformat(),
+            "content": summary.content,
+            "entry_count": summary.entry_count
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get periodic summary: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get periodic summary") 

@@ -236,8 +236,7 @@ const JournalEditor = ({ entry, onSaved }) => {
 
     try {
       setIsGeneratingCover(true);
-      toast.info('Generating AI cover image...', { 
-        id: 'generating-cover',
+      const toastId = toast.loading('Generating AI cover image...', { 
         duration: 60000 // Long duration as image generation can take time
       });
       
@@ -247,7 +246,7 @@ const JournalEditor = ({ entry, onSaved }) => {
       setImagePreview(response.data.image_url);
       setImage(null); // Clear any existing file upload
       
-      toast.dismiss('generating-cover');
+      toast.dismiss(toastId);
       toast.success('AI cover image generated!', { icon: '🎨' });
     } catch (error) {
       console.error('Error generating cover image:', error);

@@ -12,6 +12,7 @@ class AIProvider(str, Enum):
     OPENAI = "openai"
     OLLAMA = "ollama"
     DEEPSEEK = "deepseek"
+    GROK = "grok"
 
 
 # Default configuration for each provider
@@ -22,13 +23,19 @@ AI_PROVIDER_CONFIGS: Dict[AIProvider, Dict[str, Any]] = {
         "base_url": None,  # Use default OpenAI URL
     },
     AIProvider.OLLAMA: {
-        "base_url": "http://localhost:11434",
-        "model": "llama3",
+        "base_url": "http://host.docker.internal:11434",  # Special Docker DNS name to reach host
+        "model": "llama3:latest",  # Exact model name as seen in Ollama
+        "stream": False,  # Set to False to get complete response at once
     },
     AIProvider.DEEPSEEK: {
         "api_key": None,
         "model": "deepseek-chat",
         "base_url": "https://api.deepseek.com",
+    },
+    AIProvider.GROK: {
+        "api_key": None,
+        "model": "grok-1",
+        "base_url": "https://api.grok.ai/v1",
     }
 }
 
@@ -39,7 +46,8 @@ ACTIVE_PROVIDER: AIProvider = AIProvider.OPENAI
 INSTRUCTION_TEMPLATES: Dict[AIProvider, str] = {
     AIProvider.OPENAI: "{instructions}",
     AIProvider.OLLAMA: "{instructions}",
-    AIProvider.DEEPSEEK: "{instructions}"
+    AIProvider.DEEPSEEK: "{instructions}",
+    AIProvider.GROK: "{instructions}"
 }
 
 # Any additional provider-specific settings
@@ -53,6 +61,10 @@ PROVIDER_SETTINGS: Dict[AIProvider, Dict[str, Any]] = {
         "max_tokens": 1000,
     },
     AIProvider.DEEPSEEK: {
+        "temperature": 0.7,
+        "max_tokens": 1000,
+    },
+    AIProvider.GROK: {
         "temperature": 0.7,
         "max_tokens": 1000,
     }

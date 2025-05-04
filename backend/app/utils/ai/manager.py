@@ -4,12 +4,17 @@ This module provides a unified interface for working with various AI providers.
 """
 
 import os
+import logging
+import json
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 from app.config.ai import AIProvider, AI_PROVIDER_CONFIGS, ACTIVE_PROVIDER
 from app.utils.ai.providers import (
-    BaseAIProvider, OpenAIProvider, OllamaProvider, DeepSeekProvider
+    BaseAIProvider, OpenAIProvider, OllamaProvider, DeepSeekProvider, GrokProvider
 )
+from app.utils.ai.logger import log_ai_interaction
 
+# Configure logger
+logger = logging.getLogger(__name__)
 
 class AIManager:
     """
@@ -21,7 +26,8 @@ class AIManager:
     _provider_map = {
         AIProvider.OPENAI: OpenAIProvider,
         AIProvider.OLLAMA: OllamaProvider,
-        AIProvider.DEEPSEEK: DeepSeekProvider
+        AIProvider.DEEPSEEK: DeepSeekProvider,
+        AIProvider.GROK: GrokProvider
     }
     _active_provider: BaseAIProvider = None
     _active_assistant_id: Optional[str] = None
@@ -70,11 +76,32 @@ class AIManager:
         if not self._active_provider:
             raise RuntimeError("No active AI provider set")
         
+        # Log the request
+        logger.info(f"Creating assistant with name: {name}")
+        logger.info(f"Instructions: {instructions[:100]}..." if len(instructions) > 100 else f"Instructions: {instructions}")
+        if tools:
+            logger.info(f"Tools: {json.dumps(tools)}")
+        
+        # Log the assistant creation in the AI interactions log
+        log_ai_interaction(
+            provider=str(self.active_provider_type),
+            prompt_type="assistant_creation",
+            prompt=instructions,
+            response="ASSISTANT CREATION - NO DIRECT RESPONSE",
+            metadata={
+                "assistant_name": name,
+                "has_tools": bool(tools)
+            }
+        )
+        
         assistant = await self._active_provider.create_assistant(
             name=name, 
             instructions=instructions,
             tools=tools
         )
+        
+        # Log the response
+        logger.info(f"Assistant created with ID: {assistant['id']}")
         
         # Store the assistant ID for convenience
         self._active_assistant_id = assistant["id"]
@@ -107,9 +134,17 @@ class AIManager:
             if not assistant_id:
                 raise ValueError("No assistant ID provided and no active assistant")
         
+        # Log request details
+        logger.info(f">>> SENDING TO AI AGENT <<<")
+        logger.info(f"User message: {user_message}")
+        logger.info(f"Using assistant ID: {assistant_id}")
+        logger.info(f"Thread ID: {thread_id or 'New thread will be created'}")
+        logger.info(f"Provider: {self.active_provider_type}")
+        
         # Create a new thread if not provided
         if not thread_id:
             thread_id = await self._active_provider.create_thread()
+            logger.info(f"Created new thread with ID: {thread_id}")
         
         # Add the user message to the thread
         await self._active_provider.add_message(thread_id, user_message)
@@ -119,6 +154,23 @@ class AIManager:
             thread_id=thread_id,
             assistant_id=assistant_id,
             tool_callbacks=tool_callbacks
+        )
+        
+        # Log the response
+        logger.info(f">>> RECEIVED FROM AI AGENT <<<")
+        logger.info(f"Response: {response[:200]}..." if len(response) > 200 else f"Response: {response}")
+        
+        # Log in AI interactions log
+        log_ai_interaction(
+            provider=str(self.active_provider_type),
+            prompt_type="assistant_conversation",
+            prompt=user_message,
+            response=response,
+            metadata={
+                "assistant_id": assistant_id,
+                "thread_id": thread_id,
+                "used_tools": bool(tool_callbacks)
+            }
         )
         
         return {
@@ -142,6 +194,54 @@ class AIManager:
     def set_active_assistant_id(self, assistant_id: str) -> None:
         """Set the active assistant ID"""
         self._active_assistant_id = assistant_id
+        
+    async def generate_image(self, prompt: str, size: str = "1024x1024") -> Optional[str]:
+        """Generate an image using the active provider
+        
+        Args:
+            prompt: The prompt to generate an image for
+            size: The size of the image to generate (default: 1024x1024)
+            
+        Returns:
+            URL to the generated image or None if generation failed
+        """
+        if not self._active_provider:
+            raise RuntimeError("No active AI provider set")
+        
+        # Log the image generation request
+        logger.info(f">>> SENDING IMAGE GENERATION REQUEST <<<")
+        logger.info(f"Prompt: {prompt}")
+        logger.info(f"Size: {size}")
+        logger.info(f"Provider: {self.active_provider_type}")
+        
+        image_url = await self._active_provider.generate_image(prompt=prompt, size=size)
+        
+        # Log the response
+        if image_url:
+            logger.info(f">>> IMAGE GENERATION SUCCESSFUL <<<")
+            logger.info(f"Image URL: {image_url[:100]}..." if len(image_url) > 100 else f"Image URL: {image_url}")
+            
+            # Log in AI interactions log
+            log_ai_interaction(
+                provider=str(self.active_provider_type),
+                prompt_type="image_generation",
+                prompt=prompt,
+                response=f"Image generated: {image_url[:100]}..." if len(image_url) > 100 else f"Image generated: {image_url}",
+                metadata={"size": size}
+            )
+        else:
+            logger.error(">>> IMAGE GENERATION FAILED <<<")
+            
+            # Log failure in AI interactions log
+            log_ai_interaction(
+                provider=str(self.active_provider_type),
+                prompt_type="image_generation",
+                prompt=prompt,
+                response="IMAGE GENERATION FAILED",
+                metadata={"size": size, "failed": True}
+            )
+            
+        return image_url
 
 
 # Create a global instance for convenient import
