@@ -3,13 +3,14 @@ from fastapi.security import OAuth2PasswordBearer
 from authlib.integrations.starlette_client import OAuth
 from starlette.config import Config
 from app.config import settings
-from app.models import User
+from app.models import User, JournalEntry
 from app.utils.redis_utils import add_token_to_blacklist, is_token_blacklisted, clear_all_user_tokens
 from app.utils.auth_utils import extract_token_from_header
 import jwt
 from datetime import datetime, timedelta
 from starlette.responses import RedirectResponse
 import logging
+from app.utils.sentiment_utils import analyze_sentiment
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -188,4 +189,86 @@ async def refresh_token(user: User = Security(get_current_user), old_token: str 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Token refresh failed"
+        )
+
+@router.post("/test-login")
+async def test_login():
+    """
+    Create a test user and return a JWT token for testing purposes.
+    This is used by the frontend "Try as Test User" button.
+    """
+    try:
+        # Create or get the test user
+        test_user = await User.get_or_create(
+            name="testuser",
+            defaults={
+                "email": "test@example.com",
+                "google_id": "test_google_id"
+            }
+        )
+        user = test_user[0]  # get_or_create returns a tuple (instance, created)
+        
+        # Check if this is a newly created user or has no entries
+        entry_count = await JournalEntry.filter(user=user).count()
+        if entry_count == 0:
+            # Create a sample entry
+            from datetime import date
+            
+            sample_content = """
+            Welcome to JournalMind! This is a sample journal entry to help you get started.
+            
+            Today I explored this amazing journaling app that uses AI to provide insights into my thoughts and feelings. 
+            The interface is clean and intuitive, making it easy to record my daily reflections. I particularly like how 
+            it can analyze emotions and track patterns over time.
+            
+            I'm excited to start using this regularly to document my experiences and see what kind of insights the AI 
+            assistant can provide. The feature that generates titles based on content is clever, and I appreciate the 
+            privacy-focused approach. Looking forward to filling these pages with my thoughts!
+            """
+            
+            # Analyze sentiment
+            sentiment_score, emotion_tags = await analyze_sentiment(sample_content)
+            
+            # Create the entry
+            today = date.today()
+            await JournalEntry.create(
+                user=user,
+                title="My First Journal Entry with JournalMind",
+                date=today,
+                content=sample_content,
+                tags=["welcome", "first entry", "demo"],
+                sentiment_score=sentiment_score,
+                emotion_tags=emotion_tags
+            )
+            
+            # Update entry count
+            user.entry_count += 1
+            await user.save()
+            
+            # Store in vector database
+            from app.utils.vector_db_utils import store_journal_entry
+            try:
+                await store_journal_entry(
+                    entry_id=1,  # This will be the first entry
+                    user_id=user.id,
+                    content=sample_content,
+                    date=str(today),
+                    tags=["welcome", "first entry", "demo"]
+                )
+            except Exception as e:
+                logger.error(f"Failed to store sample entry in vector DB: {str(e)}")
+        
+        # Create a JWT token
+        payload = {
+            "sub": user.google_id,
+            "exp": datetime.utcnow() + timedelta(days=7)  # Longer expiration for test
+        }
+        access_token = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+        
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        logger.error(f"Test login error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create test login session"
         )

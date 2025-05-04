@@ -18,6 +18,8 @@ import pandas as pd
 import io
 import json
 import asyncio
+from starlette.requests import Request
+from starlette.datastructures import URL
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -38,13 +40,40 @@ async def genesis_upload(mode: str = Form(..., description="'next15' to process 
     """
     # Read .csv file
     content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty CSV file")
+    
     try:
-        df = pd.read_csv(io.StringIO(content.decode()), converters={"tags": json.loads})
+        # Try to decode and load the CSV
+        decoded_content = content.decode('utf-8')
+        if not decoded_content.strip():
+            raise HTTPException(status_code=400, detail="CSV file is empty or contains only whitespace")
+        
+        # Log the first few lines for debugging
+        logger.info(f"CSV content preview: {decoded_content[:200]}...")
+        
+        # Try to parse the CSV
+        df = pd.read_csv(io.StringIO(decoded_content))
+        
+        # Check required columns
+        required_columns = ["date", "content"]
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"CSV is missing required columns: {', '.join(missing_columns)}"
+            )
+    except pd.errors.EmptyDataError:
+        raise HTTPException(status_code=400, detail="CSV file has no data")
+    except pd.errors.ParserError as e:
+        raise HTTPException(status_code=400, detail=f"CSV parsing error: {str(e)}")
     except Exception as e:
         logger.error(f"CSV parsing error: {str(e)}")
-        raise HTTPException(status_code=400, detail="Invalid CSV or tags format")
+        raise HTTPException(status_code=400, detail=f"Invalid CSV format: {str(e)}")
 
     total = len(df)
+    if total == 0:
+        raise HTTPException(status_code=400, detail="CSV file contains no entries")
 
     # We create a checkpoint file for the user
     checkpoint_file = os.path.join(CHECKPOINT_DIR, f"{user.id}_{file.filename}.chk")
@@ -65,31 +94,69 @@ async def genesis_upload(mode: str = Form(..., description="'next15' to process 
     
     processed = 0
     # Process entries directly instead of using asyncio.gather to avoid complexity
+    
+    # Create a simple dummy request for image URL generation
+    class DummyRequest:
+        def __init__(self):
+            self.base_url = URL("http://localhost:8000")
+    
     for idx in range(start_idx, end_idx):
         try:
             row = df.iloc[idx]
-            # Create a mock request object since the original function expects a Request
-            # This is needed for image URL building, but we don't have images in CSV
-            mock_request = Request({"type": "http"})
-            mock_request.base_url = "http://localhost:8000"
             
-            # Convert the date to string format
-            entry_date = str(row["date"])
+            # Create a simple request object with just the base_url we need
+            mock_request = DummyRequest()
             
-            # Convert tags to JSON string
-            tags_json = json.dumps(row["tags"]) if "tags" in row and row["tags"] else "[]"
+            # Convert the date to string format and ensure it's in the right format
+            try:
+                # Handle different date formats that might be in the CSV
+                if isinstance(row["date"], str):
+                    # Try to parse the date string
+                    entry_date = datetime.strptime(row["date"], "%Y-%m-%d").strftime("%Y-%m-%d")
+                else:
+                    # If it's already a datetime or pandas timestamp
+                    entry_date = row["date"].strftime("%Y-%m-%d")
+            except Exception as e:
+                logger.error(f"Date parsing error at index {idx}: {str(e)}")
+                entry_date = datetime.now().strftime("%Y-%m-%d")
+            
+            # Ensure content is a string
+            content = str(row["content"])
+            
+            # Get title if present
+            title = row.get("title", None)
+            if pd.isna(title):
+                title = None
+            
+            # Handle tags - convert to JSON string if present, otherwise use empty array
+            try:
+                if "tags" in row and not pd.isna(row["tags"]):
+                    # If tags is a string that looks like a list representation
+                    if isinstance(row["tags"], str) and ("[" in row["tags"] or "{" in row["tags"]):
+                        tags_json = row["tags"]
+                    else:
+                        # If it's already a list or we need to create one
+                        tags_list = row["tags"] if isinstance(row["tags"], list) else [row["tags"]]
+                        tags_json = json.dumps(tags_list)
+                else:
+                    tags_json = "[]"
+            except Exception as e:
+                logger.error(f"Tags parsing error at index {idx}: {str(e)}")
+                tags_json = "[]"
             
             # Call create_entry with the proper parameters
             await create_entry(
                 request=mock_request,
                 date=entry_date,
-                content=str(row["content"]),
-                title=row.get("title", None),
+                content=content,
+                title=title,
                 tags=tags_json,
                 image=None,  # No image support in CSV import
                 user=user
             )
             processed += 1
+            logger.info(f"Successfully processed entry {idx}")
+            
         except Exception as e:
             logger.error(f"Failed to create entry at index {idx}: {str(e)}")
             raise HTTPException(
@@ -120,11 +187,10 @@ async def test_genesis_upload(mode: str = Form(..., description="'next15' to pro
     """
     # Create a test user
     test_user = await User.get_or_create(
-        username="testuser",
+        name="testuser",
         defaults={
             "email": "test@example.com",
-            "full_name": "Test User",
-            "is_active": True
+            "google_id": "test_google_id"
         }
     )
     user = test_user[0]  # get_or_create returns a tuple (instance, created)
