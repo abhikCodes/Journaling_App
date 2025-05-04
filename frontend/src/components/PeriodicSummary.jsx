@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { analyticsApi } from '../api';
 import LoadingSpinner from './LoadingSpinner';
+import { Link } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 
 const PeriodicSummary = () => {
   const [loading, setLoading] = useState(true);
@@ -76,15 +78,13 @@ const PeriodicSummary = () => {
       </div>
       
       <div className="prose prose-sm max-w-none">
-        {summary.content.split('\n\n').map((paragraph, index) => (
-          <p key={index}>{paragraph}</p>
-        ))}
+        <ReactMarkdown>{summary.content}</ReactMarkdown>
       </div>
       
       <div className="mt-4 text-right">
-        <a href="/summaries" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+        <Link to="/insights/all" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
           View all summaries →
-        </a>
+        </Link>
       </div>
     </div>
   );

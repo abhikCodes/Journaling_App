@@ -8,6 +8,7 @@ import Dashboard from './components/Dashboard'
 import LoginPage from './components/LoginPage'
 import LoadingScreen from './components/LoadingScreen'
 import Insights from './components/Insights'
+import AllSummaries from './components/AllSummaries'
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -114,6 +115,9 @@ export default function App() {
         } />
         <Route path="/insights" element={
           isAuthenticated ? <Insights /> : <Navigate to="/" />
+        } />
+        <Route path="/insights/all" element={
+          isAuthenticated ? <AllSummaries /> : <Navigate to="/" />
         } />
         <Route path="/" element={
           isAuthenticated ? <Navigate to="/dashboard" /> : <LoginPage onLogin={() => authApi.login()} />

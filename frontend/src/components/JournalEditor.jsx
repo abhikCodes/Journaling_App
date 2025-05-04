@@ -522,7 +522,7 @@ const JournalEditor = ({ entry, onSaved }) => {
         </div>
         
         {/* Action buttons */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3 justify-start">
           <button
             onClick={handleSave}
             disabled={isSaving || isDeleting}
@@ -531,7 +531,7 @@ const JournalEditor = ({ entry, onSaved }) => {
             {isSaving ? 'Saving...' : entry.id ? 'Update Entry' : 'Save Entry'}
           </button>
           
-          {entry.id ? (
+          {entry.id && (
             <button
               onClick={handleDelete}
               disabled={isDeleting || isSaving}
@@ -539,8 +539,6 @@ const JournalEditor = ({ entry, onSaved }) => {
             >
               {isDeleting ? 'Deleting...' : 'Delete Entry'}
             </button>
-          ) : (
-            <div></div>
           )}
         </div>
       </div>
