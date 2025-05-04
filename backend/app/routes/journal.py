@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File
 from typing import List, Optional
 from datetime import date, datetime, timedelta
 from app.schemas import JournalEntryCreate, JournalEntryUpdate, JournalEntryResponse
@@ -6,12 +6,91 @@ from app.models import JournalEntry, User, PeriodicSummary
 from app.routes.auth import get_current_user
 from app.utils.vector_db_utils import store_journal_entry, delete_journal_entry, search_similar_entries
 from app.utils.sentiment_utils import analyze_sentiment, generate_periodic_summary
-import logging
+import logging, os
+import pandas as pd
+import io
+import json
+import asyncio
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Checkpoint storage directory
+CHECKPOINT_DIR = "./checkpoints"
+if not os.path.exists(CHECKPOINT_DIR):
+    os.makedirs(CHECKPOINT_DIR)
+
+@router.post("/genisis")
+async def genesis_upload(mode: str = Form(..., description="'next15' to process next 15 entries, 'all' to process entire CSV"), file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    """
+    Bulk upload journal entries from CSV. Modes:
+    - next15: process next 15 entries since last checkpoint
+    - all: process all entries from CSV
+    """
+    # Read .csv file
+    content = await file.read()
+    try:
+        df = pd.read_csv(io.StringIO(content.decode()), converters={"tags": json.loads})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid CSV or tags format")
+
+    total = len(df)
+
+    # We create a checkpoint file for the user
+    checkpoint_file = os.path.join(CHECKPOINT_DIR, f"{user.id}_{file.filename}.chk")
+
+    # Determine start index
+    if os.path.exists(checkpoint_file) and mode == "next15":
+        with open(checkpoint_file, 'r') as f:
+            start_idx = int(f.read().strip() or 0)
+    else:
+        start_idx = 0
+
+    if mode == "next15":
+        end_idx = min(start_idx + 15, total)
+    elif mode == "all":
+        end_idx = total
+    else:
+        raise HTTPException(status_code=400, detail="Mode must be 'next15' or 'all'")
+    
+    tasks = []
+    for idx in range(start_idx, end_idx):
+        row = df.iloc[idx]
+        entry_in = JournalEntryCreate(
+            date=row["date"],
+            content=row["content"],
+            tags=row["tags"]
+        )
+        tasks.append(create_entry(entry=entry_in, user=user))
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    processed = 0
+    for idx, res in enumerate(results, start=start_idx):
+        if isinstance(res, Exception):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create entry at index {idx}: {res}"
+            )
+        processed += 1
+
+    # write checkpoint
+    next_idx = end_idx if mode == "next15" else total
+
+    if next_idx >= total:
+        if os.path.exists(checkpoint_file):
+            os.remove(checkpoint_file)
+    else:
+        with open(checkpoint_file, 'w') as f:
+            f.write(str(next_idx))
+
+    return {
+        "processed": processed, 
+        "next_index": next_idx, 
+        "total": total
+    }
 
 @router.post("/entries", response_model=JournalEntryResponse)
 async def create_entry(entry: JournalEntryCreate, user: User = Depends(get_current_user)):
@@ -93,7 +172,7 @@ async def create_entry(entry: JournalEntryCreate, user: User = Depends(get_curre
 @router.get("/entries", response_model=List[JournalEntryResponse])
 async def list_entries(
     skip: int = 0,
-    limit: int = 10,
+    limit: int = 100,
     search: Optional[str] = None,
     tag: Optional[str] = None,
     start_date: Optional[date] = None,
