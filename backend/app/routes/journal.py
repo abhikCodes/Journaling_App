@@ -14,6 +14,10 @@ import os
 import shutil
 from uuid import uuid4
 from fastapi.encoders import jsonable_encoder
+import pandas as pd
+import io
+import json
+import asyncio
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -36,7 +40,8 @@ async def genesis_upload(mode: str = Form(..., description="'next15' to process 
     content = await file.read()
     try:
         df = pd.read_csv(io.StringIO(content.decode()), converters={"tags": json.loads})
-    except Exception:
+    except Exception as e:
+        logger.error(f"CSV parsing error: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid CSV or tags format")
 
     total = len(df)
@@ -58,26 +63,39 @@ async def genesis_upload(mode: str = Form(..., description="'next15' to process 
     else:
         raise HTTPException(status_code=400, detail="Mode must be 'next15' or 'all'")
     
-    tasks = []
-    for idx in range(start_idx, end_idx):
-        row = df.iloc[idx]
-        entry_in = JournalEntryCreate(
-            date=row["date"],
-            content=row["content"],
-            tags=row["tags"]
-        )
-        tasks.append(create_entry(entry=entry_in, user=user))
-
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
     processed = 0
-    for idx, res in enumerate(results, start=start_idx):
-        if isinstance(res, Exception):
+    # Process entries directly instead of using asyncio.gather to avoid complexity
+    for idx in range(start_idx, end_idx):
+        try:
+            row = df.iloc[idx]
+            # Create a mock request object since the original function expects a Request
+            # This is needed for image URL building, but we don't have images in CSV
+            mock_request = Request({"type": "http"})
+            mock_request.base_url = "http://localhost:8000"
+            
+            # Convert the date to string format
+            entry_date = str(row["date"])
+            
+            # Convert tags to JSON string
+            tags_json = json.dumps(row["tags"]) if "tags" in row and row["tags"] else "[]"
+            
+            # Call create_entry with the proper parameters
+            await create_entry(
+                request=mock_request,
+                date=entry_date,
+                content=str(row["content"]),
+                title=row.get("title", None),
+                tags=tags_json,
+                image=None,  # No image support in CSV import
+                user=user
+            )
+            processed += 1
+        except Exception as e:
+            logger.error(f"Failed to create entry at index {idx}: {str(e)}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to create entry at index {idx}: {res}"
+                detail=f"Failed to create entry at index {idx}: {str(e)}"
             )
-        processed += 1
 
     # write checkpoint
     next_idx = end_idx if mode == "next15" else total
@@ -94,6 +112,26 @@ async def genesis_upload(mode: str = Form(..., description="'next15' to process 
         "next_index": next_idx, 
         "total": total
     }
+
+@router.post("/test-genisis")
+async def test_genesis_upload(mode: str = Form(..., description="'next15' to process next 15 entries, 'all' to process entire CSV"), file: UploadFile = File(...)):
+    """
+    Test version of the bulk upload endpoint that uses a test user (for testing in FastAPI docs).
+    """
+    # Create a test user
+    test_user = await User.get_or_create(
+        username="testuser",
+        defaults={
+            "email": "test@example.com",
+            "full_name": "Test User",
+            "is_active": True
+        }
+    )
+    user = test_user[0]  # get_or_create returns a tuple (instance, created)
+    
+    # Use the same implementation as the main endpoint
+    return await genesis_upload(mode=mode, file=file, user=user)
+
 # Configure upload directory
 UPLOAD_DIR = "uploads/journal_images"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -180,7 +218,6 @@ async def create_entry(
     entry_date = datetime.strptime(date, "%Y-%m-%d").date()
     
     # Parse tags from JSON string
-    import json
     tags_list = json.loads(tags) if tags else []
     
     # Validate the entry
@@ -346,7 +383,6 @@ async def update_entry(
     
     # Process tags if provided
     if tags:
-        import json
         update_data["tags"] = json.loads(tags)
     
     # Validate entry if date or content is being updated
