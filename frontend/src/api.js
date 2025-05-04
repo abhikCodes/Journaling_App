@@ -5,6 +5,26 @@ const api = axios.create({
   baseURL: '/api'
 })
 
+// Add response interceptor to standardize error handling
+api.interceptors.response.use(
+  response => response,
+  error => {
+    // Format error for easier consumption by components
+    const formattedError = {
+      status: error.response?.status,
+      message: error.response?.data?.detail || 'An unexpected error occurred',
+      data: error.response?.data,
+      original: error
+    };
+    
+    // Log the error for debugging
+    console.error('API Error:', formattedError);
+    
+    // Throw the formatted error to be caught by components
+    return Promise.reject(formattedError);
+  }
+);
+
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('access_token')
   if (token) {
@@ -17,22 +37,38 @@ api.interceptors.request.use(config => {
 export const journalApi = {
   getEntries: (params = {}) => api.get('/journal/entries', { params }),
   getEntry: (id) => api.get(`/journal/entries/${id}`),
-  createEntry: (data) => api.post('/journal/entries', data),
-  updateEntry: (id, data) => api.put(`/journal/entries/${id}`, data),
+  createEntry: (data) => {
+    // For FormData, we need to use different content type
+    const config = {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    };
+    return api.post('/journal/entries', data, config);
+  },
+  updateEntry: (id, data) => {
+    // For FormData, we need to use different content type
+    const config = {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    };
+    return api.put(`/journal/entries/${id}`, data, config);
+  },
   deleteEntry: (id) => api.delete(`/journal/entries/${id}`),
-  searchEntries: (query, limit = 5) => api.get('/journal/search', { params: { query, limit } })
+  searchEntries: (query, limit = 5) => api.get('/journal/search', { params: { query, limit } }),
+  generateTitle: (content) => api.post('/journal/generate-title', { content }),
+  generateCoverImage: (content, title) => api.post('/journal/generate-cover-image', { content, title })
 }
 
 export const analyticsApi = {
-  getSentimentHistory: (days = 30) => api.get('/analytics/sentiment/history', { params: { days } }),
   getSummaries: (limit = 5) => api.get('/analytics/summaries', { params: { limit } }),
   getSummary: (id) => api.get(`/analytics/summaries/${id}`),
   getLatestSummary: () => api.get('/analytics/summaries/latest')
 }
 
 export const insightsApi = {
-  getPeopleSummary: () => api.get('/insights/people-summary'),
-  chatWithJournal: (query) => api.post('/insights/chat', { query })
+  getSummary: () => api.get('/insights/summary')
 }
 
 export const authApi = {
@@ -77,7 +113,9 @@ export const authApi = {
 }
 
 export const assistantApi = {
-  sendMessage: (message) => api.post('/assistant/message', { message })
+  sendMessage: (message) => api.post('/assistant/message', { message }),
+  debugContext: (message) => api.post('/assistant/debug', { message }),
+  clearContext: () => api.post('/assistant/clear')
 }
 
 export default api

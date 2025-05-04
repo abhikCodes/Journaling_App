@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import { journalApi } from '../api'
 
-const JournalEntryList = ({ onSelect, refreshTrigger }) => {
+const JournalEntryList = ({ onSelect, refreshTrigger, onEntriesLoaded }) => {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -18,6 +18,7 @@ const JournalEntryList = ({ onSelect, refreshTrigger }) => {
     if (searchTerm) {
       setFilteredEntries(
         entries.filter(entry => 
+          (entry.title && entry.title.toLowerCase().includes(searchTerm.toLowerCase())) ||
           entry.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
           entry.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
         )
@@ -27,12 +28,23 @@ const JournalEntryList = ({ onSelect, refreshTrigger }) => {
     }
   }, [searchTerm, entries])
 
+  useEffect(() => {
+    // Pass all entries to parent component when entries change
+    if (onEntriesLoaded && entries.length > 0) {
+      onEntriesLoaded(entries);
+    }
+  }, [entries, onEntriesLoaded]);
+
   const fetchEntries = async () => {
     try {
       setLoading(true)
       const response = await journalApi.getEntries()
-      setEntries(response.data)
-      setFilteredEntries(response.data)
+      // Sort entries by date in descending order (newest first)
+      const sortedEntries = response.data.sort((a, b) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      )
+      setEntries(sortedEntries)
+      setFilteredEntries(sortedEntries)
     } catch (error) {
       console.error('Error fetching entries:', error)
       toast.error('Failed to load journal entries')
@@ -142,6 +154,10 @@ const JournalEntryList = ({ onSelect, refreshTrigger }) => {
                       </div>
                     )}
                   </div>
+                  
+                  {entry.title && (
+                    <h3 className="font-bold text-base mb-1 text-primary-dark">{entry.title}</h3>
+                  )}
                   <p className="text-text-dark text-sm">{getExcerpt(entry.content)}</p>
                 </motion.div>
               ))}

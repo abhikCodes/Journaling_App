@@ -34,6 +34,8 @@ module.exports = {
         },
         fontFamily: {
           sans: ['Nunito', 'sans-serif'],
+          serif: ['Playfair Display', 'serif'],
+          baskerville: ['Libre Baskerville', 'serif'],
         },
         boxShadow: {
           'btn': '0px 4px 0px 0px #46A302',

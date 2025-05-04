@@ -3,18 +3,26 @@ import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import { assistantApi } from '../api'
 
-const AssistantChat = () => {
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      text: "Hi there! I'm your AI journaling assistant. How can I help you with your journaling today?",
-      sender: 'assistant',
-      timestamp: new Date()
-    }
-  ])
+// Default welcome message
+const WELCOME_MESSAGE = {
+  id: 1,
+  text: "Hi there! I'm your AI journaling assistant. How can I help you with your journaling today?",
+  sender: 'assistant',
+  timestamp: new Date()
+};
+
+const AssistantChat = ({ onClose }) => {
+  // Initialize with welcome message
+  const [messages, setMessages] = useState([WELCOME_MESSAGE])
   const [newMessage, setNewMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef(null)
+
+  // Reset messages to initial state when component mounts
+  // This ensures we have a fresh conversation each time
+  useEffect(() => {
+    setMessages([WELCOME_MESSAGE]);
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -75,7 +83,8 @@ const AssistantChat = () => {
     "How did I feel today?",
     "What am I grateful for?",
     "Can you analyze my journal entries?",
-    "Give me some journaling prompts"
+    "Give me some journaling prompts",
+    "what do you think about my presentation ?"
   ]
 
   const handleSuggestionClick = (suggestion) => {
@@ -85,16 +94,31 @@ const AssistantChat = () => {
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-midnight rounded-full flex items-center justify-center">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-midnight rounded-full flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-bold">Journal Assistant</h3>
+              <p className="text-sm text-text-light">Ask me anything about your journal</p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-bold">Journal Assistant</h3>
-            <p className="text-sm text-text-light">Ask me anything about your journal</p>
-          </div>
+          
+          {/* Close button */}
+          {onClose && (
+            <button 
+              onClick={onClose}
+              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+              aria-label="Close assistant"
+            >
+              <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
       
@@ -123,8 +147,10 @@ const AssistantChat = () => {
           
           {isLoading && (
             <motion.div
+              key="loading"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
               className="flex justify-start"
             >
@@ -160,7 +186,7 @@ const AssistantChat = () => {
       )}
       
       {/* Message input */}
-      <div className="p-4 border-t border-gray-200">
+      <div className="p-4 border-t border-gray-200 z-10">
         <form onSubmit={handleSendMessage} className="flex space-x-2">
           <input
             type="text"
@@ -173,7 +199,7 @@ const AssistantChat = () => {
           <button
             type="submit"
             disabled={!newMessage.trim() || isLoading}
-            className={`btn btn-midnight ${(!newMessage.trim() || isLoading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`btn btn-midnight relative z-20 ${(!newMessage.trim() || isLoading) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
