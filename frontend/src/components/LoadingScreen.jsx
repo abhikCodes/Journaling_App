@@ -1,7 +1,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 
-const LoadingScreen = () => {
+const LoadingScreen = ({ message = "Loading your AI journal..." }) => {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background">
       <motion.div
@@ -28,7 +28,7 @@ const LoadingScreen = () => {
         </div>
         
         <h1 className="text-3xl font-extrabold mb-2 text-text-dark">JournalMind</h1>
-        <p className="text-text-light mb-8">Loading your AI journal...</p>
+        <p className="text-text-light mb-8">{message}</p>
         
         <div className="flex space-x-2">
           {[0, 1, 2].map((i) => (

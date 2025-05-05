@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from typing import List, Optional, Dict
+import logging
 from datetime import date, datetime, timedelta
+from fastapi import APIRouter, HTTPException, Depends, File, Form, UploadFile
 from app.schemas import JournalEntryCreate, JournalEntryUpdate, JournalEntryResponse, TitleGenerationRequest, CoverImageRequest
 from app.models import JournalEntry, User, PeriodicSummary
 from app.routes.auth import get_current_user
@@ -98,7 +99,10 @@ async def genesis_upload(mode: str = Form(..., description="'next15' to process 
     # Create a simple dummy request for image URL generation
     class DummyRequest:
         def __init__(self):
-            self.base_url = URL("http://localhost:8000")
+            # Use environment variable or default to the container name for Docker networking
+            host = os.getenv("API_HOST", "backend")
+            port = os.getenv("API_PORT", "8000")
+            self.base_url = URL(f"http://{host}:{port}")
     
     for idx in range(start_idx, end_idx):
         try:
@@ -123,26 +127,18 @@ async def genesis_upload(mode: str = Form(..., description="'next15' to process 
             # Ensure content is a string
             content = str(row["content"])
             
-            # Get title if present
-            title = row.get("title", None)
+            # Get title if present from either title or project title column
+            title = None
+            if "title" in row and not pd.isna(row["title"]):
+                title = row["title"]
+            elif "project title" in row and not pd.isna(row["project title"]):
+                title = row["project title"]
+            
             if pd.isna(title):
                 title = None
             
-            # Handle tags - convert to JSON string if present, otherwise use empty array
-            try:
-                if "tags" in row and not pd.isna(row["tags"]):
-                    # If tags is a string that looks like a list representation
-                    if isinstance(row["tags"], str) and ("[" in row["tags"] or "{" in row["tags"]):
-                        tags_json = row["tags"]
-                    else:
-                        # If it's already a list or we need to create one
-                        tags_list = row["tags"] if isinstance(row["tags"], list) else [row["tags"]]
-                        tags_json = json.dumps(tags_list)
-                else:
-                    tags_json = "[]"
-            except Exception as e:
-                logger.error(f"Tags parsing error at index {idx}: {str(e)}")
-                tags_json = "[]"
+            # Skip tags - we're not showing them in the preview as per requirements
+            tags_json = "[]"
             
             # Call create_entry with the proper parameters
             await create_entry(
@@ -181,9 +177,10 @@ async def genesis_upload(mode: str = Form(..., description="'next15' to process 
     }
 
 @router.post("/test-genisis")
-async def test_genesis_upload(mode: str = Form(..., description="'next15' to process next 15 entries, 'all' to process entire CSV"), file: UploadFile = File(...)):
+async def test_genesis_upload(mode: str = Form(..., description="'next15' to process next 15 entries, 'all' to process entire CSV")):
     """
-    Test version of the bulk upload endpoint that uses a test user (for testing in FastAPI docs).
+    Test version of the bulk upload endpoint that uses a CSV file in frontend/public/test_user_entry.csv
+    and a test user to populate the database (for testing in FastAPI docs).
     """
     # Create a test user
     test_user = await User.get_or_create(
@@ -195,8 +192,36 @@ async def test_genesis_upload(mode: str = Form(..., description="'next15' to pro
     )
     user = test_user[0]  # get_or_create returns a tuple (instance, created)
     
-    # Use the same implementation as the main endpoint
-    return await genesis_upload(mode=mode, file=file, user=user)
+    # Try different paths to find the CSV file
+    possible_paths = [
+        "app/test_user_entry.csv",             # Direct path in app folder
+    ]
+    
+    csv_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            csv_path = path
+            break
+    
+    if csv_path is None:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Test CSV file not found. Tried paths: {', '.join(possible_paths)}"
+        )
+    
+    logger.info(f"Using test CSV file at: {csv_path}")
+    
+    # Open the file and create an UploadFile object
+    file_content = open(csv_path, "rb")
+    file = UploadFile(filename="test_user_entry.csv", file=file_content)
+    
+    try:
+        # Use the same implementation as the main endpoint
+        result = await genesis_upload(mode=mode, file=file, user=user)
+        return result
+    finally:
+        # Make sure to close the file
+        file_content.close()
 
 # Configure upload directory
 UPLOAD_DIR = "uploads/journal_images"
@@ -214,7 +239,7 @@ async def save_upload_file(upload_file: UploadFile, user_id: int, request: Reque
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(upload_file.file, buffer)
     
-    # Return the URL using the StaticFiles mount path
+    # Return the URL using the StaticFiles mount path - use relative URL for Docker compatibility
     return f"/uploads/journal_images/{unique_filename}"
 
 # Function to delete image file
@@ -337,9 +362,7 @@ async def create_entry(
     except Exception as e:
         logger.error(f"Failed to generate periodic summary: {str(e)}")
     
-    # Ensure image URL has the correct base URL
-    base_url = str(request.base_url).rstrip('/')
-    final_image_url = f"{base_url}{image_url}" if image_url and image_url.startswith('/') else image_url
+    # No need to modify image_url with base_url, use relative URLs for Docker compatibility
     
     return JournalEntryResponse(
         id=new_entry.id,
@@ -349,7 +372,7 @@ async def create_entry(
         tags=new_entry.tags,
         sentiment_score=sentiment_score,
         emotion_tags=emotion_tags,
-        image_url=final_image_url
+        image_url=image_url
     )
 
 @router.get("/entries", response_model=List[JournalEntryResponse])
@@ -374,8 +397,7 @@ async def list_entries(
         query = query.filter(date__lte=end_date)
     entries = await query.offset(skip).limit(limit)
     
-    # Ensure image URLs have the correct base URL
-    base_url = str(request.base_url).rstrip('/')
+    # Use relative URLs for Docker compatibility
     
     return [
       JournalEntryResponse(
@@ -386,8 +408,7 @@ async def list_entries(
         tags=e.tags,
         sentiment_score=e.sentiment_score,
         emotion_tags=e.emotion_tags,
-        # Prefix relative image URLs with base URL if present
-        image_url=f"{base_url}{e.image_url}" if e.image_url and e.image_url.startswith('/') else e.image_url
+        image_url=e.image_url  # Keep URLs relative
       )
       for e in entries
     ]
@@ -402,9 +423,7 @@ async def get_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
     
-    # Ensure image URL has the correct base URL
-    base_url = str(request.base_url).rstrip('/')
-    image_url = f"{base_url}{entry.image_url}" if entry.image_url and entry.image_url.startswith('/') else entry.image_url
+    # Keep URL relative for Docker compatibility
     
     return JournalEntryResponse(
         id=entry.id,
@@ -414,7 +433,7 @@ async def get_entry(
         tags=entry.tags,
         sentiment_score=entry.sentiment_score,
         emotion_tags=entry.emotion_tags,
-        image_url=image_url
+        image_url=entry.image_url  # Keep URLs relative
     )
 
 @router.put("/entries/{entry_id}", response_model=JournalEntryResponse)
@@ -498,9 +517,7 @@ async def update_entry(
         except Exception as e:
             logger.error(f"Failed to update entry in vector DB: {str(e)}")
     
-    # Ensure image URL has the correct base URL
-    base_url = str(request.base_url).rstrip('/')
-    final_image_url = f"{base_url}{entry.image_url}" if entry.image_url and entry.image_url.startswith('/') else entry.image_url
+    # Keep URL relative for Docker compatibility
     
     return JournalEntryResponse(
         id=entry.id,
@@ -510,7 +527,7 @@ async def update_entry(
         tags=entry.tags,
         sentiment_score=entry.sentiment_score,
         emotion_tags=entry.emotion_tags,
-        image_url=final_image_url
+        image_url=entry.image_url  # Keep URLs relative
     )
 
 @router.delete("/entries/{entry_id}")
@@ -643,11 +660,9 @@ async def create_cover_image(
                 detail="Failed to generate cover image. Please try again later."
             )
         
-        # Ensure image URL has the correct base URL
-        base_url = str(request.base_url).rstrip('/')
-        final_image_url = f"{base_url}{image_url}" if image_url and image_url.startswith('/') else image_url
+        # Keep URL relative for Docker compatibility
         
-        return {"image_url": final_image_url}
+        return {"image_url": image_url}
     
     except Exception as e:
         logger.error(f"Error generating cover image: {str(e)}")

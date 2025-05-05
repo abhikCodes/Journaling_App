@@ -1,9 +1,13 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import axios from 'axios'
 import toast from 'react-hot-toast'
+import { journalApi } from '../api'
+import LoadingScreen from './LoadingScreen'
 
 const LoginPage = ({ onLogin }) => {
+  const [isSettingUp, setIsSettingUp] = useState(false)
+  
   const loginAsTestUser = async () => {
     try {
       // Show loading toast
@@ -15,18 +19,42 @@ const LoginPage = ({ onLogin }) => {
       // Set the token in localStorage
       localStorage.setItem('access_token', response.data.access_token)
       
-      // Redirect to dashboard
-      window.location.href = '/dashboard'
-      
-      // Show success toast
-      toast.dismiss()
-      toast.success('Logged in as test user!')
+      // Check if we need to setup test user data
+      if (response.data.setup_needed) {
+        // Dismiss the login toast
+        toast.dismiss()
+        
+        // Show the setting up screen
+        setIsSettingUp(true)
+        
+        try {
+          // Upload and process the test data
+          await journalApi.setupTestUser()
+          
+          // Redirect to dashboard
+          window.location.href = '/dashboard'
+        } catch (setupError) {
+          console.error('Error setting up test user:', setupError)
+          toast.error('Failed to set up test user data')
+          setIsSettingUp(false)
+        }
+      } else {
+        // No setup needed, redirect directly
+        toast.dismiss()
+        toast.success('Logged in as test user!')
+        window.location.href = '/dashboard'
+      }
     } catch (error) {
       // Show error toast
       toast.dismiss()
       toast.error('Failed to login as test user')
       console.error('Test login error:', error)
+      setIsSettingUp(false)
     }
+  }
+  
+  if (isSettingUp) {
+    return <LoadingScreen message="Setting up test user data... Please wait" />
   }
 
   return (

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
+import ReactMarkdown from 'react-markdown'
 import { assistantApi } from '../api'
 
 // Default welcome message
@@ -78,6 +79,20 @@ const AssistantChat = ({ onClose }) => {
     }
   }
 
+  const handleNewChat = async () => {
+    try {
+      // Clear context on server
+      await assistantApi.clearContext()
+      
+      // Reset messages to just the welcome message
+      setMessages([WELCOME_MESSAGE])
+      toast.success('Started a new chat')
+    } catch (error) {
+      console.error('Error clearing chat:', error)
+      toast.error('Failed to start a new chat')
+    }
+  }
+
   // Suggestions to help users get started
   const suggestions = [
     "How did I feel today?",
@@ -107,18 +122,32 @@ const AssistantChat = ({ onClose }) => {
             </div>
           </div>
           
-          {/* Close button */}
-          {onClose && (
+          <div className="flex items-center space-x-2">
+            {/* New Chat button */}
             <button 
-              onClick={onClose}
-              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-              aria-label="Close assistant"
+              onClick={handleNewChat}
+              className="flex items-center space-x-1 px-3 py-1 text-sm bg-green-50 text-green-700 rounded-full hover:bg-green-100 transition-colors"
+              aria-label="New chat"
             >
-              <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
+              <span>New Chat</span>
             </button>
-          )}
+            
+            {/* Close button */}
+            {onClose && (
+              <button 
+                onClick={onClose}
+                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                aria-label="Close assistant"
+              >
+                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
       
@@ -140,7 +169,13 @@ const AssistantChat = ({ onClose }) => {
                     : 'bg-surface shadow-card rounded-tl-none'
                 }`}
               >
-                <p className="text-sm">{message.text}</p>
+                {message.sender === 'user' ? (
+                  <p className="text-sm">{message.text}</p>
+                ) : (
+                  <div className="text-sm markdown-content">
+                    <ReactMarkdown>{message.text}</ReactMarkdown>
+                  </div>
+                )}
               </div>
             </motion.div>
           ))}

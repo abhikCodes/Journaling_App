@@ -89,6 +89,28 @@ const JournalViewer = ({ entry, onEdit, onNavigate, hasMultipleEntries }) => {
   // Use the entry that's currently being displayed
   const displayEntry = isTransitioning ? prevEntryRef.current : currentEntry;
 
+  // Function to ensure image URL works correctly in Docker environment
+  const getImageUrl = (url) => {
+    if (!url) return null;
+    
+    // If it's already a relative URL or starts with http and doesn't contain backend:8000
+    if (url.startsWith('/') || (url.startsWith('http') && !url.includes('backend:8000'))) {
+      return url;
+    }
+    
+    // Handle Docker backend URLs by converting to relative URLs for proxy
+    if (url.includes('backend:8000')) {
+      // Extract the path part after backend:8000
+      const pathMatch = url.match(/backend:8000(\/.*)/);
+      if (pathMatch && pathMatch[1]) {
+        return pathMatch[1]; // Return just the path part which will use the proxy
+      }
+    }
+    
+    // Default fallback
+    return url;
+  };
+
   // Check if we should show the image for this entry
   const shouldShowImage = (entryId) => {
     return entryId && 
@@ -129,7 +151,7 @@ const JournalViewer = ({ entry, onEdit, onNavigate, hasMultipleEntries }) => {
         {shouldShowImage(entry.id) && (
           <div className="float-right ml-6 mb-4 w-full sm:w-1/3 md:w-1/3 lg:w-1/4">
             <img 
-              src={entry.image_url}
+              src={getImageUrl(entry.image_url)}
               alt="Journal entry" 
               className="w-full rounded-lg object-cover" 
               onError={() => {
@@ -314,7 +336,7 @@ const JournalViewer = ({ entry, onEdit, onNavigate, hasMultipleEntries }) => {
                 whileHover={{ scale: 1.02 }}
               >
                 <img 
-                  src={displayEntry.image_url}
+                  src={getImageUrl(displayEntry.image_url)}
                   alt="Journal entry" 
                   className="w-full rounded-lg object-cover" 
                   onError={() => {

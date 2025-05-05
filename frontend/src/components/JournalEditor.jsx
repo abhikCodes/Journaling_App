@@ -20,6 +20,28 @@ const JournalEditor = ({ entry, onSaved }) => {
   const fileInputRef = useRef(null)
   const contentAreaRef = useRef(null)
 
+  // Function to ensure image URL works correctly in Docker environment
+  const getImageUrl = (url) => {
+    if (!url) return null;
+    
+    // If it's already a relative URL or starts with http and doesn't contain backend:8000
+    if (url.startsWith('/') || (url.startsWith('http') && !url.includes('backend:8000'))) {
+      return url;
+    }
+    
+    // Handle Docker backend URLs by converting to relative URLs for proxy
+    if (url.includes('backend:8000')) {
+      // Extract the path part after backend:8000
+      const pathMatch = url.match(/backend:8000(\/.*)/);
+      if (pathMatch && pathMatch[1]) {
+        return pathMatch[1]; // Return just the path part which will use the proxy
+      }
+    }
+    
+    // Default fallback
+    return url;
+  };
+
   // Get today's date for max date constraint
   const today = format(new Date(), 'yyyy-MM-dd')
 
@@ -337,7 +359,7 @@ const JournalEditor = ({ entry, onSaved }) => {
             {imagePreview ? (
               <div className="relative">
                 <img 
-                  src={imagePreview} 
+                  src={getImageUrl(imagePreview)} 
                   alt="Preview" 
                   className="w-8 h-8 rounded-md object-cover border border-gray-200" 
                 />
@@ -483,7 +505,7 @@ const JournalEditor = ({ entry, onSaved }) => {
           <div className="absolute top-2 right-2 z-10 w-1/4 max-w-[180px]">
             <div className="relative rounded-md overflow-hidden shadow-md">
               <img 
-                src={imagePreview} 
+                src={getImageUrl(imagePreview)} 
                 alt="Journal entry" 
                 className="w-full h-auto object-cover" 
               />

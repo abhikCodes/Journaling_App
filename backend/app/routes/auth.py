@@ -207,56 +207,10 @@ async def test_login():
             }
         )
         user = test_user[0]  # get_or_create returns a tuple (instance, created)
+        is_new_user = test_user[1]  # Returns True if user was created
         
         # Check if this is a newly created user or has no entries
         entry_count = await JournalEntry.filter(user=user).count()
-        if entry_count == 0:
-            # Create a sample entry
-            from datetime import date
-            
-            sample_content = """
-            Welcome to JournalMind! This is a sample journal entry to help you get started.
-            
-            Today I explored this amazing journaling app that uses AI to provide insights into my thoughts and feelings. 
-            The interface is clean and intuitive, making it easy to record my daily reflections. I particularly like how 
-            it can analyze emotions and track patterns over time.
-            
-            I'm excited to start using this regularly to document my experiences and see what kind of insights the AI 
-            assistant can provide. The feature that generates titles based on content is clever, and I appreciate the 
-            privacy-focused approach. Looking forward to filling these pages with my thoughts!
-            """
-            
-            # Analyze sentiment
-            sentiment_score, emotion_tags = await analyze_sentiment(sample_content)
-            
-            # Create the entry
-            today = date.today()
-            await JournalEntry.create(
-                user=user,
-                title="My First Journal Entry with JournalMind",
-                date=today,
-                content=sample_content,
-                tags=["welcome", "first entry", "demo"],
-                sentiment_score=sentiment_score,
-                emotion_tags=emotion_tags
-            )
-            
-            # Update entry count
-            user.entry_count += 1
-            await user.save()
-            
-            # Store in vector database
-            from app.utils.vector_db_utils import store_journal_entry
-            try:
-                await store_journal_entry(
-                    entry_id=1,  # This will be the first entry
-                    user_id=user.id,
-                    content=sample_content,
-                    date=str(today),
-                    tags=["welcome", "first entry", "demo"]
-                )
-            except Exception as e:
-                logger.error(f"Failed to store sample entry in vector DB: {str(e)}")
         
         # Create a JWT token
         payload = {
@@ -265,10 +219,59 @@ async def test_login():
         }
         access_token = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
         
-        return {"access_token": access_token, "token_type": "bearer"}
+        # If no entries, we'll tell the frontend to use the CSV data
+        # But still return a valid token immediately
+        return {
+            "access_token": access_token, 
+            "token_type": "bearer",
+            "setup_needed": entry_count == 0,
+            "is_new_user": is_new_user
+        }
     except Exception as e:
         logger.error(f"Test login error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create test login session"
+        )
+
+@router.post("/setup-test-user")
+async def setup_test_user(user: User = Depends(get_current_user)):
+    """
+    Set up predefined journal entries for a test user from the CSV file.
+    """
+    try:
+        # Check if this is the test user
+        if user.email != "test@example.com" and "test" not in user.name.lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This endpoint is only for test users"
+            )
+            
+        # Check if user already has entries
+        entry_count = await JournalEntry.filter(user=user).count()
+        if entry_count > 0:
+            return {"message": "User already has entries", "entry_count": entry_count}
+        
+        # Import the test_genesis_upload function
+        from app.routes.journal import test_genesis_upload
+        
+        # Call the test_genesis_upload function with 'all' mode to process all entries
+        try:
+            result = await test_genesis_upload(mode="all")
+            return {
+                "message": "Successfully set up test user with entries from CSV file",
+                "created_count": result.get("processed", 0),
+                "total": result.get("total", 0)
+            }
+        except Exception as e:
+            logger.error(f"Error in test_genesis_upload: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to load entries from CSV: {str(e)}"
+            )
+    except Exception as e:
+        logger.error(f"Error setting up test user: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to set up test user: {str(e)}"
         )

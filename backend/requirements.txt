@@ -16,3 +16,10 @@ redis
 qdrant-client
 sentence-transformers
 httpx
+
+# Dependencies for advanced retrieval
+sqlalchemy
+spacy
+python-dateutil
+scikit-learn
+matplotlib

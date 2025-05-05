@@ -2,7 +2,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: '/api'
+  baseURL: ''
 })
 
 // Add response interceptor to standardize error handling
@@ -58,7 +58,11 @@ export const journalApi = {
   deleteEntry: (id) => api.delete(`/journal/entries/${id}`),
   searchEntries: (query, limit = 5) => api.get('/journal/search', { params: { query, limit } }),
   generateTitle: (content) => api.post('/journal/generate-title', { content }),
-  generateCoverImage: (content, title) => api.post('/journal/generate-cover-image', { content, title })
+  generateCoverImage: (content, title) => api.post('/journal/generate-cover-image', { content, title }),
+  setupTestUser: async () => {
+    // Use the simplified setup endpoint that creates sample entries directly on the backend
+    return api.post('/auth/setup-test-user');
+  }
 }
 
 export const analyticsApi = {
@@ -78,7 +82,7 @@ export const authApi = {
     const redirectUri = `${origin}/auth-callback.html`
     
     // Redirect to the login endpoint with the callback URL
-    window.location.href = `/api/auth/login?redirect_uri=${encodeURIComponent(redirectUri)}`
+    window.location.href = `/auth/login?redirect_uri=${encodeURIComponent(redirectUri)}`
   },
   
   getToken: () => {
